@@ -30,6 +30,10 @@ float iterateMandelbrot(vec2 coord){
 }
 
 void main () {
-	float it   = iterateMandelbrot(fragPos * 2);
+	vec2 point = vec2(
+					data[0] + (data[2] - data[0]) * (fragPos.x * 0.5 + 0.5),
+					data[1] + (data[3] - data[1]) * (fragPos.y * 0.5 + 0.5)
+				 );
+	float it   = iterateMandelbrot(point);
 	outColor   = vec4 (it, it, it, 1.0);
 }

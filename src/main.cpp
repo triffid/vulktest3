@@ -46,6 +46,9 @@ struct RenderData {
 	size_t current_frame = 0;
 };
 
+// left/top/right/bottom borders
+float edgeData[4] = {-2.0f, -1.0f, 0.0f, 1.0f};
+
 GLFWwindow* create_window_glfw(const char* window_name = "", bool resize = true) {
 	glfwInit();
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
@@ -302,10 +305,16 @@ int create_graphics_pipeline(Init& init, RenderData& data) {
 	color_blending.blendConstants[2] = 0.0f;
 	color_blending.blendConstants[3] = 0.0f;
 
+	VkPushConstantRange range = {};
+	range.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+	range.offset = 0;
+	range.size = 16; // %v4float (vec4) is defined as 16 bytes
+
 	VkPipelineLayoutCreateInfo pipeline_layout_info = {};
 	pipeline_layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
 	pipeline_layout_info.setLayoutCount = 0;
-	pipeline_layout_info.pushConstantRangeCount = 0;
+	pipeline_layout_info.pushConstantRangeCount = 1;
+	pipeline_layout_info.pPushConstantRanges = &range;
 
 	if (init.disp.createPipelineLayout(&pipeline_layout_info, nullptr, &data.pipeline_layout) != VK_SUCCESS) {
 		std::cout << "failed to create pipeline layout\n";
@@ -424,6 +433,8 @@ int create_command_buffers(Init& init, RenderData& data) {
 		VkRect2D scissor = {};
 		scissor.offset = { 0, 0 };
 		scissor.extent = init.swapchain.extent;
+
+		init.disp.cmdPushConstants(data.command_buffers[i], data.pipeline_layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, 16, edgeData);
 
 		init.disp.cmdSetViewport(data.command_buffers[i], 0, 1, &viewport);
 		init.disp.cmdSetScissor(data.command_buffers[i], 0, 1, &scissor);
