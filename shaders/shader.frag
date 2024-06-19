@@ -12,15 +12,15 @@ layout (location = 0) out vec4 outColor;
 
 int maxIterations = 256;
 
-vec2 squareImaginary(vec2 number){
-	return vec2(
-		pow(number.x,2) - pow(number.y,2),
+dvec2 squareImaginary(dvec2 number){
+	return dvec2(
+		(number.x * number.x) - (number.y * number.y),
 		2 * number.x * number.y
 	);
 }
 
 float iterateMandelbrot(vec2 coord){
-	vec2 z = vec2(0,0);
+	dvec2 z = dvec2(0,0);
 	for(int i=0;i<maxIterations;i++){
 		z = squareImaginary(z) + coord;
 		if (length(z) > 2)

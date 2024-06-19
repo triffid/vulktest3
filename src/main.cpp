@@ -94,6 +94,11 @@ int device_initialization(Init& init) {
 	init.surface = create_surface_glfw(init.instance, init.window);
 
 	vkb::PhysicalDeviceSelector phys_device_selector(init.instance);
+	{
+		VkPhysicalDeviceFeatures features = {};
+		features.shaderFloat64 = VK_TRUE;
+		phys_device_selector.set_required_features(features);
+	}
 	auto phys_device_ret = phys_device_selector.set_surface(init.surface).select();
 	if (!phys_device_ret) {
 		std::cout << phys_device_ret.error().message() << "\n";
