@@ -766,19 +766,11 @@ static void cursor_position_callback(GLFWwindow* window, double xpos, double ypo
 	mousePoint[0] = dmap(0, 1, center[0] - 2.0/zoom, center[0] + 2.0/zoom, mousePos[0]);
 	mousePoint[1] = dmap(0, 1, center[1] - 2.0/zoom, center[1] + 2.0/zoom, mousePos[1]);
 
-	std::cout << "Mouse move " << mousePoint[0] << "," << mousePoint[1] << std::endl;
+	// std::cout << "Mouse move " << mousePoint[0] << "," << mousePoint[1] << std::endl;
 
 	if (mouseDrag) {
 		center[0] += (mouseGrabPoint[0] - mousePoint[0]);
 		center[1] += (mouseGrabPoint[1] - mousePoint[1]);
-		// center[0] = (mouseGrabPoint[0] - mousePos[0]) * -4.0/zoom + 2.0/zoom;
-		// center[1] = (mouseGrabPoint[1] - mousePos[1]) * -4.0/zoom + 2.0/zoom;
-
-		// double newMousePoint[2] = {
-		// 	dmap(0, 1, center[0] - 2.0/zoom, center[0] + 2.0/zoom, mousePos[0]),
-		// 	dmap(0, 1, center[1] - 2.0/zoom, center[1] + 2.0/zoom, mousePos[1]),
-		// };
-
 
 		// std::cout << "\t\t" << newMousePoint[0] << "," << newMousePoint[1] << " should equal " << mouseGrabPoint[0] << "," << mouseGrabPoint[1] << "; distance = " << (mouseGrabPoint[0] - newMousePoint[0]) << "," << (mouseGrabPoint[1] - newMousePoint[1]) << std::endl;
 	}
@@ -805,10 +797,10 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
 			mouseGrabPoint[1] = mousePoint[1];
 			mouseDrag = true;
 
-			std::cout << "Mouse Down, grabs " << mouseGrabPoint[0] << "," << mouseGrabPoint[1] << std::endl;
+			// std::cout << "Mouse Down, grabs " << mouseGrabPoint[0] << "," << mouseGrabPoint[1] << std::endl;
 		}
 		else if (action == GLFW_RELEASE) {
-			std::cout << "Mouse Up" << std::endl;
+			// std::cout << "Mouse Up" << std::endl;
 			mouseDrag = false;
 		}
 	}
@@ -816,21 +808,12 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
 
 void scroll_callback(GLFWwindow* window, double xoffset, double yoffset)
 {
-	std::cout << "Scroll " << xoffset << "," << yoffset << std::endl;
+	// std::cout << "Scroll " << xoffset << "," << yoffset << std::endl;
 	if (yoffset != 0) {
-		// mouseGrabPoint[0] = mousePoint[0];
-		// mouseGrabPoint[1] = mousePoint[1];
-
 		zoom *= 1 + (yoffset * 0.1);
-
-		// mousePoint[0] = dmap(0, 1, center[0] - 2.0/zoom, center[0] + 2.0/zoom, mousePos[0]);
-		// mousePoint[1] = dmap(0, 1, center[1] - 2.0/zoom, center[1] + 2.0/zoom, mousePos[1]);
-
-		// center[0] += (mouseGrabPoint[0] - mousePoint[0]);
-		// center[1] += (mouseGrabPoint[1] - mousePoint[1]);
 	}
 
-	std::cout << "Zoom is now " << zoom << std::endl;
+	// std::cout << "Zoom is now " << zoom << std::endl;
 }
 
 int main() {
@@ -851,7 +834,7 @@ int main() {
 	glfwSetScrollCallback(init.window, scroll_callback);
 
 	while (!glfwWindowShouldClose(init.window)) {
-		glfwPollEvents();
+		glfwWaitEvents();
 
 		{
 			edgeData[0] = center[0] - perpixel * init.swapchain.extent.width / zoom;
@@ -859,6 +842,9 @@ int main() {
 			edgeData[2] = center[0] + perpixel * init.swapchain.extent.width / zoom;
 			edgeData[3] = center[1] + perpixel * init.swapchain.extent.height / zoom;
 		}
+
+		printf("Center: %1.17f,%1.17f, size: %1.17fx%1.17f\n", center[0], center[1], edgeData[2] - edgeData[0], edgeData[3] - edgeData[1]);
+
 		if (0) {
 			center[0] -= 0.001f;
 			zoom *= 1.001f;

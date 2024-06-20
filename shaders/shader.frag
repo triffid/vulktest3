@@ -6,8 +6,6 @@ layout (set=0, binding=0) uniform UniformBufferObject {
 	dvec4 data;
 };
 
-// layout (pixel_center_integer) in vec4 gl_FragCoord;
-
 layout (location = 0) out vec4 outColor;
 
 int maxIterations = 512;
@@ -38,5 +36,10 @@ void main () {
 		data[0] + (data[2] - data[0]) * ((fragPos.x * 0.5lf) + 0.5lf),
 		data[1] + (data[3] - data[1]) * ((fragPos.y * 0.5lf) + 0.5lf)
 	));
-	outColor = vec4 (pow(it, 3.0), (it - pow(it * 0.9, 3.0) - pow(it * 0.88, 10.0)) * 0.75, (pow(it, 1.0/2) - pow(it, 3.0) - pow(it, 10.0)) * 0.5, 1.0);
+	outColor = vec4 (
+		pow(it, 3.0),
+		(it - pow(it * 0.9, 3.0) - pow(it * 0.88, 10.0)) * 0.75,
+		(pow(it, 1.0/2) - pow(it, 3.0) - pow(it, 10.0)) * 0.5,
+		1.0
+	);
 }
