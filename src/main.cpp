@@ -8,20 +8,25 @@
 #include <vulkan/vulkan_core.h>
 #include <GLFW/glfw3.h>
 
-#include <VkBootstrap.h>
+#include "VkBootstrap.h"
+
+// #include "vk_mem_alloc.h"
 
 #define EXAMPLE_BUILD_DIRECTORY "./shaders"
 
-const int MAX_FRAMES_IN_FLIGHT = 2;
+const int MAX_FRAMES_IN_FLIGHT = 3;
 
 struct Init {
 	GLFWwindow* window;
 	vkb::Instance instance;
 	vkb::InstanceDispatchTable inst_disp;
 	VkSurfaceKHR surface;
+	vkb::PhysicalDevice physical_device;
 	vkb::Device device;
 	vkb::DispatchTable disp;
 	vkb::Swapchain swapchain;
+
+	// VmaAllocator allocator;
 };
 
 struct RenderData {
@@ -43,11 +48,18 @@ struct RenderData {
 	std::vector<VkSemaphore> finished_semaphore;
 	std::vector<VkFence> in_flight_fences;
 	std::vector<VkFence> image_in_flight;
+
+	std::vector<VkBuffer> buffers;
+	std::vector<VkDeviceMemory> buffersMemory;
+	std::vector<void*> buffersMapped;
+
+	std::vector<VkDescriptorSet> descriptorSets;
+
 	size_t current_frame = 0;
 };
 
 // left/top/right/bottom borders
-float edgeData[4] = {-2.0f, -1.0f, 0.0f, 1.0f};
+double edgeData[4] = {-2.0f, -1.0f, 0.0f, 1.0f};
 
 GLFWwindow* create_window_glfw(const char* window_name = "", bool resize = true) {
 	glfwInit();
@@ -95,7 +107,13 @@ int device_initialization(Init& init) {
 
 	vkb::PhysicalDeviceSelector phys_device_selector(init.instance);
 	{
-		VkPhysicalDeviceFeatures features = {};
+		VkPhysicalDeviceVulkan12Features features12 {
+			.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES
+		};
+		features12.bufferDeviceAddress = true;
+		phys_device_selector.set_required_features_12(features12);
+
+		VkPhysicalDeviceFeatures features {};
 		features.shaderFloat64 = VK_TRUE;
 		phys_device_selector.set_required_features(features);
 	}
@@ -104,9 +122,9 @@ int device_initialization(Init& init) {
 		std::cout << phys_device_ret.error().message() << "\n";
 		return -1;
 	}
-	vkb::PhysicalDevice physical_device = phys_device_ret.value();
+	init.physical_device = phys_device_ret.value();
 
-	vkb::DeviceBuilder device_builder{ physical_device };
+	vkb::DeviceBuilder device_builder{ init.physical_device };
 	auto device_ret = device_builder.build();
 	if (!device_ret) {
 		std::cout << device_ret.error().message() << "\n";
@@ -310,21 +328,77 @@ int create_graphics_pipeline(Init& init, RenderData& data) {
 	color_blending.blendConstants[2] = 0.0f;
 	color_blending.blendConstants[3] = 0.0f;
 
-	VkPushConstantRange range = {};
-	range.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-	range.offset = 0;
-	range.size = 16; // %v4float (vec4) is defined as 16 bytes
+	VkDescriptorSetLayoutBinding binding {};
+	binding.binding = 0;
+	binding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+	binding.descriptorCount = 1;
+	binding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
-	VkPipelineLayoutCreateInfo pipeline_layout_info = {};
-	pipeline_layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-	pipeline_layout_info.setLayoutCount = 0;
-	pipeline_layout_info.pushConstantRangeCount = 1;
-	pipeline_layout_info.pPushConstantRanges = &range;
-
-	if (init.disp.createPipelineLayout(&pipeline_layout_info, nullptr, &data.pipeline_layout) != VK_SUCCESS) {
-		std::cout << "failed to create pipeline layout\n";
-		return -1; // failed to create pipeline layout
+	VkDescriptorSetLayout setLayout {};
+	VkDescriptorSetLayoutCreateInfo setLayoutCreateInfo = {
+		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+		.bindingCount = 1,
+		.pBindings = &binding
+	};
+	if (vkCreateDescriptorSetLayout(init.device, &setLayoutCreateInfo, nullptr, &setLayout) != VK_SUCCESS) {
+		std::cout << "vkCreateDescriptorSetLayout failed" << std::endl;
+		throw;
 	}
+
+	VkDescriptorPoolSize poolSize {};
+	poolSize.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+	poolSize.descriptorCount = MAX_FRAMES_IN_FLIGHT;
+
+	VkDescriptorPoolCreateInfo poolInfo {
+		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+		.maxSets = MAX_FRAMES_IN_FLIGHT,
+		.poolSizeCount = 1,
+		.pPoolSizes = &poolSize,
+	};
+
+	VkDescriptorPool descriptorPool;
+	if (vkCreateDescriptorPool(init.device, &poolInfo, nullptr, &descriptorPool) != VK_SUCCESS)
+		throw std::runtime_error("Descriptor pool creation failed!");
+
+	std::vector<VkDescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT, setLayout);
+	VkDescriptorSetAllocateInfo allocInfo = {
+		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+		.descriptorPool = descriptorPool,
+		.descriptorSetCount = MAX_FRAMES_IN_FLIGHT,
+		.pSetLayouts = layouts.data(),
+	};
+
+	data.descriptorSets.resize(MAX_FRAMES_IN_FLIGHT);
+	if (vkAllocateDescriptorSets(init.device, &allocInfo, data.descriptorSets.data()) != VK_SUCCESS)
+		throw std::runtime_error("Descriptor Set creation failed!");
+
+	for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+		VkDescriptorBufferInfo bufferInfo = {
+			.buffer = data.buffers[i],
+			.offset = 0,
+			.range = VK_WHOLE_SIZE,
+		};
+
+		VkWriteDescriptorSet descriptorWrite = {
+			.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+			.dstSet = data.descriptorSets[i],
+			.dstBinding = 0,
+			.dstArrayElement = 0,
+			.descriptorCount = 1,
+			.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+			.pBufferInfo = &bufferInfo,
+		};
+
+		vkUpdateDescriptorSets(init.device, 1, &descriptorWrite, 0, nullptr);
+	}
+
+	VkPipelineLayoutCreateInfo pipeline_layout_info = {
+		.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+		.setLayoutCount = 1,
+		.pSetLayouts = &setLayout
+	};
+	if (init.disp.createPipelineLayout(&pipeline_layout_info, nullptr, &data.pipeline_layout) != VK_SUCCESS)
+		throw std::runtime_error("failed to create pipeline layout\n");
 
 	std::vector<VkDynamicState> dynamic_states = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
 
@@ -356,6 +430,60 @@ int create_graphics_pipeline(Init& init, RenderData& data) {
 
 	init.disp.destroyShaderModule(frag_module, nullptr);
 	init.disp.destroyShaderModule(vert_module, nullptr);
+	return 0;
+}
+
+int create_transfer_buffers(Init& init, RenderData& data) {
+	data.buffers.resize(MAX_FRAMES_IN_FLIGHT);
+	data.buffersMemory.resize(MAX_FRAMES_IN_FLIGHT);
+	data.buffersMapped.resize(MAX_FRAMES_IN_FLIGHT);
+
+	uint32_t memoryIndex = 0xFFFFFFFF;
+
+	std::cout << "Creating transfer buffers…" << std::endl;
+
+	for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+	{
+		VkBufferCreateInfo bufferInfo = {};
+		bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+		bufferInfo.size  = sizeof(edgeData);
+		bufferInfo.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+		bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+		VkResult ret = vkCreateBuffer(init.device, &bufferInfo, nullptr, &data.buffers[i]);
+		if (ret != VK_SUCCESS)
+			throw std::runtime_error("Buffer creation failed!");
+
+		VkMemoryRequirements memreq;
+		vkGetBufferMemoryRequirements(init.device, data.buffers[i], &memreq);
+
+		if (memoryIndex == 0xFFFFFFFF) {
+			VkPhysicalDeviceMemoryProperties memProperties;
+			vkGetPhysicalDeviceMemoryProperties(init.physical_device, &memProperties);
+
+			for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++) {
+				if ((memreq.memoryTypeBits & (1 << i)) && (memProperties.memoryTypes[i].propertyFlags & (VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)) == (VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)) {
+					memoryIndex = i;
+					break;
+				}
+			}
+		}
+		if (memoryIndex == 0xFFFFFFFF)
+			throw std::runtime_error("No suitable memory type found!");
+
+		VkMemoryAllocateInfo allocInfo{};
+		allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+		allocInfo.allocationSize = memreq.size;
+		allocInfo.memoryTypeIndex = memoryIndex;
+
+		if (vkAllocateMemory(init.device, &allocInfo, nullptr, &data.buffersMemory[i]) != VK_SUCCESS)
+			throw std::runtime_error("Failed to allocate memory for buffer!");
+
+		vkBindBufferMemory(init.device, data.buffers[i], data.buffersMemory[i], 0);
+
+		vkMapMemory(init.device, data.buffersMemory[i], 0, sizeof(edgeData), 0, &data.buffersMapped[i]);
+	}
+
 	return 0;
 }
 
@@ -439,7 +567,9 @@ int create_command_buffers(Init& init, RenderData& data) {
 		scissor.offset = { 0, 0 };
 		scissor.extent = init.swapchain.extent;
 
-		init.disp.cmdPushConstants(data.command_buffers[i], data.pipeline_layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, 16, edgeData);
+		// {
+		// 	init.disp.cmdPushConstants(data.command_buffers[i], data.pipeline_layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(edgeData), edgeData);
+		// }
 
 		init.disp.cmdSetViewport(data.command_buffers[i], 0, 1, &viewport);
 		init.disp.cmdSetScissor(data.command_buffers[i], 0, 1, &scissor);
@@ -447,6 +577,8 @@ int create_command_buffers(Init& init, RenderData& data) {
 		init.disp.cmdBeginRenderPass(data.command_buffers[i], &render_pass_info, VK_SUBPASS_CONTENTS_INLINE);
 
 		init.disp.cmdBindPipeline(data.command_buffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, data.graphics_pipeline);
+
+		init.disp.cmdBindDescriptorSets(data.command_buffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, data.pipeline_layout, 0, 1, &data.descriptorSets[i], 0, nullptr);
 
 		init.disp.cmdDraw(data.command_buffers[i], 6, 1, 0, 0);
 
@@ -539,6 +671,8 @@ int draw_frame(Init& init, RenderData& data) {
 
 	init.disp.resetFences(1, &data.in_flight_fences[data.current_frame]);
 
+	memcpy(data.buffersMapped[data.current_frame], &edgeData, sizeof(edgeData));
+
 	if (init.disp.queueSubmit(data.graphics_queue, 1, &submitInfo, data.in_flight_fences[data.current_frame]) != VK_SUCCESS) {
 		std::cout << "failed to submit draw command buffer\n";
 		return -1; //"failed to submit draw command buffer
@@ -585,6 +719,8 @@ void cleanup(Init& init, RenderData& data) {
 	init.disp.destroyPipelineLayout(data.pipeline_layout, nullptr);
 	init.disp.destroyRenderPass(data.render_pass, nullptr);
 
+	// vmaDestroyAllocator(init.allocator);
+
 	init.swapchain.destroy_image_views(data.swapchain_image_views);
 
 	vkb::destroy_swapchain(init.swapchain);
@@ -592,6 +728,39 @@ void cleanup(Init& init, RenderData& data) {
 	vkb::destroy_surface(init.instance, init.surface);
 	vkb::destroy_instance(init.instance);
 	destroy_window_glfw(init.window);
+}
+
+double center[2] = {0, 0};
+double zoom = 1;
+
+bool mouseDrag = false;
+double mouseGrabPoint[2] = {};
+
+static void cursor_position_callback(GLFWwindow* window, double xpos, double ypos)
+{
+}
+
+void cursor_enter_callback(GLFWwindow* window, int entered)
+{
+	if (entered)
+	{
+		// The cursor entered the content area of the window
+	}
+	else
+	{
+		// The cursor left the content area of the window
+	}
+}
+
+void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
+{
+	if (button == GLFW_MOUSE_BUTTON_LEFT)
+	{
+		if (action == GLFW_PRESS) {
+		}
+		else if (action == GLFW_RELEASE) {
+		}
+	}
 }
 
 int main() {
@@ -602,14 +771,29 @@ int main() {
 	if (0 != create_swapchain(init)) return -1;
 	if (0 != get_queues(init, render_data)) return -1;
 	if (0 != create_render_pass(init, render_data)) return -1;
+	if (0 != create_transfer_buffers(init, render_data)) return -1;
 	if (0 != create_graphics_pipeline(init, render_data)) return -1;
 	if (0 != create_framebuffers(init, render_data)) return -1;
 	if (0 != create_command_pool(init, render_data)) return -1;
 	if (0 != create_command_buffers(init, render_data)) return -1;
 	if (0 != create_sync_objects(init, render_data)) return -1;
 
+	glfwSetCursorPosCallback(init.window, cursor_position_callback);
+	glfwSetCursorEnterCallback(init.window, cursor_enter_callback);
+	glfwSetMouseButtonCallback(init.window, mouse_button_callback);
+
 	while (!glfwWindowShouldClose(init.window)) {
-		glfwPollEvents();
+		glfwWaitEvents();
+
+		if (1) {
+			center[0] -= 0.001f;
+			zoom *= 1.001f;
+			edgeData[0] = center[0] - 2.0f/zoom;
+			edgeData[1] = center[1] - 2.0f/zoom;
+			edgeData[2] = center[0] + 2.0f/zoom;
+			edgeData[3] = center[1] + 2.0f/zoom;
+		}
+
 		int res = draw_frame(init, render_data);
 		if (res != 0) {
 			std::cout << "failed to draw frame \n";

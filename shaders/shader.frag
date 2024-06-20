@@ -2,8 +2,8 @@
 #extension GL_ARB_separate_shader_objects : enable
 
 layout (location = 0) in vec2 fragPos;
-layout(push_constant, std430) uniform pc {
-	vec4 data;
+layout (set=0, binding=0) uniform UniformBufferObject {
+	dvec4 data;
 };
 
 // layout (pixel_center_integer) in vec4 gl_FragCoord;
