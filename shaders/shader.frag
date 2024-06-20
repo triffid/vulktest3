@@ -35,5 +35,5 @@ void main () {
 					data[1] + (data[3] - data[1]) * (fragPos.y * 0.5 + 0.5)
 				 );
 	float it   = iterateMandelbrot(point);
-	outColor   = vec4 (it, it, it, 1.0);
+	outColor   = vec4 (pow(it, 3.0), (it - pow(it * 0.9, 3.0) - pow(it * 0.95, 10.0)) * 0.75, (pow(it, 1.0/2) - pow(it, 3.0) - pow(it, 10.0)) * 0.5, 1.0);
 }

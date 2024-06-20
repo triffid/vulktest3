@@ -59,7 +59,7 @@ struct RenderData {
 };
 
 // left/top/right/bottom borders
-double edgeData[4] = {-2.0f, -1.0f, 0.0f, 1.0f};
+double edgeData[4] = {-2.0f, -2.0f, 2.0f, 2.0f};
 
 GLFWwindow* create_window_glfw(const char* window_name = "", bool resize = true) {
 	glfwInit();
@@ -140,6 +140,7 @@ int device_initialization(Init& init) {
 int create_swapchain(Init& init) {
 
 	vkb::SwapchainBuilder swapchain_builder{ init.device };
+	// swapchain_builder.set_desired_present_mode(VK_PRESENT_MODE_MAILBOX_KHR);
 	auto swap_ret = swapchain_builder.set_old_swapchain(init.swapchain).build();
 	if (!swap_ret) {
 		std::cout << swap_ret.error().message() << " " << swap_ret.vk_result() << "\n";
@@ -730,14 +731,46 @@ void cleanup(Init& init, RenderData& data) {
 	destroy_window_glfw(init.window);
 }
 
+Init init;
+RenderData render_data;
+
 double center[2] = {0, 0};
 double zoom = 1;
+double perpixel = 1.0/512;
 
 bool mouseDrag = false;
+double mousePos[2] = {};
+double mousePoint[2] = {};
 double mouseGrabPoint[2] = {};
+
+static inline double dmap(double oldmin, double oldmax, double newmin, double newmax, double value) {
+	return (value - oldmin) * (newmax - newmin) / (oldmax - oldmin) + newmin;
+}
 
 static void cursor_position_callback(GLFWwindow* window, double xpos, double ypos)
 {
+	mousePos[0] = xpos / init.swapchain.extent.width;
+	mousePos[1] = ypos / init.swapchain.extent.height;
+
+	mousePoint[0] = dmap(0, 1, center[0] - 2.0/zoom, center[0] + 2.0/zoom, mousePos[0]);
+	mousePoint[1] = dmap(0, 1, center[1] - 2.0/zoom, center[1] + 2.0/zoom, mousePos[1]);
+
+	std::cout << "Mouse move " << mousePoint[0] << "," << mousePoint[1] << std::endl;
+
+	if (mouseDrag) {
+		center[0] += (mouseGrabPoint[0] - mousePoint[0]);
+		center[1] += (mouseGrabPoint[1] - mousePoint[1]);
+		// center[0] = (mouseGrabPoint[0] - mousePos[0]) * -4.0/zoom + 2.0/zoom;
+		// center[1] = (mouseGrabPoint[1] - mousePos[1]) * -4.0/zoom + 2.0/zoom;
+
+		// double newMousePoint[2] = {
+		// 	dmap(0, 1, center[0] - 2.0/zoom, center[0] + 2.0/zoom, mousePos[0]),
+		// 	dmap(0, 1, center[1] - 2.0/zoom, center[1] + 2.0/zoom, mousePos[1]),
+		// };
+
+
+		// std::cout << "\t\t" << newMousePoint[0] << "," << newMousePoint[1] << " should equal " << mouseGrabPoint[0] << "," << mouseGrabPoint[1] << "; distance = " << (mouseGrabPoint[0] - newMousePoint[0]) << "," << (mouseGrabPoint[1] - newMousePoint[1]) << std::endl;
+	}
 }
 
 void cursor_enter_callback(GLFWwindow* window, int entered)
@@ -757,16 +790,39 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
 	if (button == GLFW_MOUSE_BUTTON_LEFT)
 	{
 		if (action == GLFW_PRESS) {
+			mouseGrabPoint[0] = mousePoint[0];
+			mouseGrabPoint[1] = mousePoint[1];
+			mouseDrag = true;
+
+			std::cout << "Mouse Down, grabs " << mouseGrabPoint[0] << "," << mouseGrabPoint[1] << std::endl;
 		}
 		else if (action == GLFW_RELEASE) {
+			std::cout << "Mouse Up" << std::endl;
+			mouseDrag = false;
 		}
 	}
 }
 
-int main() {
-	Init init;
-	RenderData render_data;
+void scroll_callback(GLFWwindow* window, double xoffset, double yoffset)
+{
+	std::cout << "Scroll " << xoffset << "," << yoffset << std::endl;
+	if (yoffset != 0) {
+		// mouseGrabPoint[0] = mousePoint[0];
+		// mouseGrabPoint[1] = mousePoint[1];
 
+		zoom *= 1 + (yoffset * 0.05);
+
+		// mousePoint[0] = dmap(0, 1, center[0] - 2.0/zoom, center[0] + 2.0/zoom, mousePos[0]);
+		// mousePoint[1] = dmap(0, 1, center[1] - 2.0/zoom, center[1] + 2.0/zoom, mousePos[1]);
+
+		// center[0] += (mouseGrabPoint[0] - mousePoint[0]);
+		// center[1] += (mouseGrabPoint[1] - mousePoint[1]);
+	}
+
+	std::cout << "Zoom is now " << zoom << std::endl;
+}
+
+int main() {
 	if (0 != device_initialization(init)) return -1;
 	if (0 != create_swapchain(init)) return -1;
 	if (0 != get_queues(init, render_data)) return -1;
@@ -781,11 +837,18 @@ int main() {
 	glfwSetCursorPosCallback(init.window, cursor_position_callback);
 	glfwSetCursorEnterCallback(init.window, cursor_enter_callback);
 	glfwSetMouseButtonCallback(init.window, mouse_button_callback);
+	glfwSetScrollCallback(init.window, scroll_callback);
 
 	while (!glfwWindowShouldClose(init.window)) {
-		glfwWaitEvents();
+		glfwPollEvents();
 
-		if (1) {
+		{
+			edgeData[0] = center[0] - perpixel * init.swapchain.extent.width / zoom;
+			edgeData[1] = center[1] - perpixel * init.swapchain.extent.height / zoom;
+			edgeData[2] = center[0] + perpixel * init.swapchain.extent.width / zoom;
+			edgeData[3] = center[1] + perpixel * init.swapchain.extent.height / zoom;
+		}
+		if (0) {
 			center[0] -= 0.001f;
 			zoom *= 1.001f;
 			edgeData[0] = center[0] - 2.0f/zoom;
