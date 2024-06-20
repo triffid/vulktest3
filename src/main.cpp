@@ -53,6 +53,9 @@ struct RenderData {
 	std::vector<VkDeviceMemory> buffersMemory;
 	std::vector<void*> buffersMapped;
 
+	VkDescriptorPool descriptorPool;
+	VkDescriptorSetLayout setLayout {};
+
 	std::vector<VkDescriptorSet> descriptorSets;
 
 	size_t current_frame = 0;
@@ -335,13 +338,12 @@ int create_graphics_pipeline(Init& init, RenderData& data) {
 	binding.descriptorCount = 1;
 	binding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
-	VkDescriptorSetLayout setLayout {};
 	VkDescriptorSetLayoutCreateInfo setLayoutCreateInfo = {
 		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
 		.bindingCount = 1,
 		.pBindings = &binding
 	};
-	if (vkCreateDescriptorSetLayout(init.device, &setLayoutCreateInfo, nullptr, &setLayout) != VK_SUCCESS) {
+	if (vkCreateDescriptorSetLayout(init.device, &setLayoutCreateInfo, nullptr, &data.setLayout) != VK_SUCCESS) {
 		std::cout << "vkCreateDescriptorSetLayout failed" << std::endl;
 		throw;
 	}
@@ -357,14 +359,13 @@ int create_graphics_pipeline(Init& init, RenderData& data) {
 		.pPoolSizes = &poolSize,
 	};
 
-	VkDescriptorPool descriptorPool;
-	if (vkCreateDescriptorPool(init.device, &poolInfo, nullptr, &descriptorPool) != VK_SUCCESS)
+	if (vkCreateDescriptorPool(init.device, &poolInfo, nullptr, &data.descriptorPool) != VK_SUCCESS)
 		throw std::runtime_error("Descriptor pool creation failed!");
 
-	std::vector<VkDescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT, setLayout);
+	std::vector<VkDescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT, data.setLayout);
 	VkDescriptorSetAllocateInfo allocInfo = {
 		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-		.descriptorPool = descriptorPool,
+		.descriptorPool = data.descriptorPool,
 		.descriptorSetCount = MAX_FRAMES_IN_FLIGHT,
 		.pSetLayouts = layouts.data(),
 	};
@@ -396,7 +397,7 @@ int create_graphics_pipeline(Init& init, RenderData& data) {
 	VkPipelineLayoutCreateInfo pipeline_layout_info = {
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
 		.setLayoutCount = 1,
-		.pSetLayouts = &setLayout
+		.pSetLayouts = &data.setLayout
 	};
 	if (init.disp.createPipelineLayout(&pipeline_layout_info, nullptr, &data.pipeline_layout) != VK_SUCCESS)
 		throw std::runtime_error("failed to create pipeline layout\n");
@@ -720,9 +721,19 @@ void cleanup(Init& init, RenderData& data) {
 	init.disp.destroyPipelineLayout(data.pipeline_layout, nullptr);
 	init.disp.destroyRenderPass(data.render_pass, nullptr);
 
-	// vmaDestroyAllocator(init.allocator);
-
 	init.swapchain.destroy_image_views(data.swapchain_image_views);
+
+	for (auto b : data.buffers)
+		vkDestroyBuffer(init.device, b, nullptr);
+	for (auto m : data.buffersMemory)
+		vkFreeMemory(init.device, m, nullptr);
+
+	// apparently the descriptor pool will free them for us
+	// vkFreeDescriptorSets(init.device, data.descriptorPool, data.descriptorSets.size(), data.descriptorSets.data());
+
+	vkDestroyDescriptorPool(init.device, data.descriptorPool, nullptr);
+
+	vkDestroyDescriptorSetLayout(init.device, data.setLayout, nullptr);
 
 	vkb::destroy_swapchain(init.swapchain);
 	vkb::destroy_device(init.device);
