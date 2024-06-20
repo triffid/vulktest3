@@ -20,8 +20,8 @@ INC       += extern/vk-bootstrap/src
 RM_BDIRS  += extern/vk-bootstrap/src extern/vk-bootstrap
 
 # Vulkan-Memory-Allocator
-CXXSRC    +=
-INC       += extern/VulkanMemoryAllocator/include
+# CXXSRC    +=
+# INC       += extern/VulkanMemoryAllocator/include
 
 RM_BDIRS  += extern
 
