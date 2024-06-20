@@ -810,7 +810,7 @@ void scroll_callback(GLFWwindow* window, double xoffset, double yoffset)
 		// mouseGrabPoint[0] = mousePoint[0];
 		// mouseGrabPoint[1] = mousePoint[1];
 
-		zoom *= 1 + (yoffset * 0.05);
+		zoom *= 1 + (yoffset * 0.1);
 
 		// mousePoint[0] = dmap(0, 1, center[0] - 2.0/zoom, center[0] + 2.0/zoom, mousePos[0]);
 		// mousePoint[1] = dmap(0, 1, center[1] - 2.0/zoom, center[1] + 2.0/zoom, mousePos[1]);
